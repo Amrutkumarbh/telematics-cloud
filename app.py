@@ -1,66 +1,95 @@
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify, render_template_string
 
 app = Flask(__name__)
 
-latest_data = {}
-
+# GLOBAL VEHICLE STATE
 vehicle_command = "NONE"
+vehicle_fault = "NONE"
+crash_status = 0
 
-# HOME PAGE
+# =========================
+# DASHBOARD PAGE
+# =========================
+
 @app.route('/')
-def home():
-    return "Telematics Server Running"
+def dashboard():
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Telematics Dashboard</title>
+        <style>
+            body {
+                font-family: Arial;
+                background: #111;
+                color: white;
+                text-align: center;
+                padding-top: 50px;
+            }
 
-# RECEIVE TELEMETRY FROM ESP32
-@app.route('/api/telemetry', methods=['POST'])
-def telemetry():
+            button {
+                width: 250px;
+                height: 60px;
+                margin: 15px;
+                font-size: 20px;
+                border-radius: 10px;
+                border: none;
+                cursor: pointer;
+            }
 
-    global latest_data
+            .immob {
+                background: red;
+                color: white;
+            }
 
-    latest_data = request.json
+            .mob {
+                background: green;
+                color: white;
+            }
 
-    print("Received Data:")
-    print(latest_data)
+            .crash {
+                background: orange;
+                color: black;
+            }
 
-    return jsonify({
-        "status": "received"
-    })
+            .fault {
+                background: yellow;
+                color: black;
+            }
 
-# GET LATEST TELEMETRY
-@app.route('/api/latest')
-def latest():
+            .status {
+                margin-top: 30px;
+                font-size: 24px;
+            }
+        </style>
+    </head>
 
-    return jsonify(latest_data)
+    <body>
 
-# ESP32 READS COMMAND FROM HERE
-@app.route('/api/command')
-def command():
+        <h1>Telematics ECU Dashboard</h1>
 
-    global vehicle_command
+        <button class="immob" onclick="sendCommand('/api/immobilize')">
+            IMMOBILIZE
+        </button>
+        <button class="mob" onclick="sendCommand('/api/mobilize')">
+            MOBILIZE
+        </button>
+        <button class="crash" onclick="sendCommand('/api/crash')">
+            CRASH
+        </button>
+        <button class="fault" onclick="sendCommand('/api/fault')">
+            FAULT
+        </button>
 
-    return jsonify({
-        "command": vehicle_command
-    })
+        <div class="status">
+            <p>Vehicle Command: {{ vehicle_command }}</p>
+            <p>Vehicle Fault: {{ vehicle_fault }}</p>
+            <p>Crash Status: {{ crash_status }}</p>
+        </div>
 
-# IMMOBILIZE COMMAND
-@app.route('/api/immobilize')
-def immobilize():
-
-    global vehicle_command
-
-    vehicle_command = "IMMOBILIZE"
-
-    return "IMMOBILIZE COMMAND SENT"
-
-# MOBILIZE COMMAND
-@app.route('/api/mobilize')
-def mobilize():
-
-    global vehicle_command
-
-    vehicle_command = "MOBILIZE"
-
-    return "MOBILIZE COMMAND SENT"
+    </body>
+    </html>
+    ''', vehicle_command=vehicle_command, vehicle_fault=vehicle_fault, crash_status=crash_status)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

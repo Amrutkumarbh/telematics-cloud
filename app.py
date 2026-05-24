@@ -3,11 +3,9 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# --- IN-MEMORY DATABASE ---
 current_command = "NONE"
-telemetry_logs = [] # Stores all data from the STM32
+telemetry_logs = [] 
 
-# --- MODERN HTML/CSS/JS DASHBOARD ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -57,11 +55,10 @@ HTML_TEMPLATE = """
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
         .btn-red { background-color: #ff416c; color: white; }
-        .btn-red:hover { background-color: #ff4b2b; transform: scale(1.05); box-shadow: 0 0 20px rgba(255,65,108,0.6); }
+        .btn-red:hover { background-color: #ff4b2b; transform: scale(1.05); }
         .btn-green { background-color: #11998e; color: white; }
-        .btn-green:hover { background-color: #38ef7d; transform: scale(1.05); box-shadow: 0 0 20px rgba(17,153,142,0.6); }
+        .btn-green:hover { background-color: #38ef7d; transform: scale(1.05); }
         
-        /* DATA TABLE STYLING */
         .data-section {
             background: rgba(0, 0, 0, 0.3);
             border-radius: 10px;
@@ -79,8 +76,11 @@ HTML_TEMPLATE = """
             text-align: center;
         }
         th { background-color: rgba(255,255,255,0.05); color: #aaa; text-transform: uppercase; font-size: 0.9em;}
-        .fault-row { background-color: rgba(255, 0, 0, 0.15); color: #ff6b6b; font-weight: bold;}
+        
+        /* NEW: DISTINCT STYLES FOR FAULTS VS CRASHES */
+        .fault-row { background-color: rgba(255, 165, 0, 0.2); color: #ffcc00; font-weight: bold;}
         .crash-row { background-color: rgba(255, 0, 0, 0.4); color: white; font-weight: bold; animation: pulse 2s infinite;}
+        .heartbeat-row { color: #aaa; font-size: 0.9em; }
         
         @keyframes pulse {
             0% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.7); }
@@ -100,82 +100,69 @@ HTML_TEMPLATE = """
         </div>
 
         <div class="data-section">
-            <h2>Live Fault Diagnostics</h2>
-            <p style="color: #aaa; font-size: 0.9em;">Showing only active ECU faults and crash events.</p>
+            <h2>Live Vehicle Event Log</h2>
             <table>
                 <thead>
                     <tr>
                         <th>Timestamp</th>
                         <th>Event Type</th>
-                        <th>Engine RPM</th>
-                        <th>Engine Temp (°C)</th>
-                        <th>Brake Status / ECU</th>
+                        <th>Source ECU</th>
+                        <th>Message / Details</th>
                     </tr>
                 </thead>
-                <tbody id="fault-table-body">
+                <tbody id="event-table-body">
                     </tbody>
             </table>
         </div>
     </div>
 
     <script>
-        // 1. Send Commands to Server
         function sendCommand(cmd) {
             fetch('/api/command', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ command: cmd })
             }).then(response => response.json())
-              .then(data => {
-                  document.getElementById('cmd-state').innerText = data.command;
-              });
+              .then(data => { document.getElementById('cmd-state').innerText = data.command; });
         }
 
-        // 2. Fetch and Filter Telemetry Logs
         function fetchLogs() {
             fetch('/api/telemetry')
                 .then(response => response.json())
                 .then(data => {
-                    const tbody = document.getElementById('fault-table-body');
+                    const tbody = document.getElementById('event-table-body');
                     tbody.innerHTML = ''; 
 
-                    // Filter: Only show if there is a Brake Fault or a Crash
-                    const faults = data.filter(log => log.brake_fault > 0 || log.event === 'CRASH');
-
-                    if (faults.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="5" style="color:#38ef7d;">All Systems Normal. No Faults Detected.</td></tr>';
+                    if (data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="4" style="color:#38ef7d;">No Events Logged Yet.</td></tr>';
                         return;
                     }
 
-                    // Build table rows (latest first)
-                    faults.slice().reverse().forEach(log => {
-                        let rowClass = log.event === 'CRASH' ? 'crash-row' : 'fault-row';
+                    data.slice().reverse().forEach(log => {
+                        let rowClass = 'heartbeat-row'; // Default
+                        if (log.event === 'CRASH') rowClass = 'crash-row';
+                        if (log.event === 'FAULT') rowClass = 'fault-row';
                         
-                        let rpm = log.engine_rpm !== undefined ? log.engine_rpm : 'N/A';
-                        let temp = log.engine_temp !== undefined ? log.engine_temp : 'N/A';
-                        let brake = log.brake_fault !== undefined ? `Fault Code: ${log.brake_fault}` : log.ecu;
+                        let ecu = log.ecu ? log.ecu : 'SYSTEM';
+                        let message = log.message ? log.message : (log.status ? log.status : 'N/A');
 
                         let row = `<tr class="${rowClass}">
                             <td>${log.timestamp}</td>
                             <td>${log.event}</td>
-                            <td>${rpm}</td>
-                            <td>${temp}</td>
-                            <td>${brake}</td>
+                            <td>${ecu}</td>
+                            <td>${message}</td>
                         </tr>`;
                         tbody.innerHTML += row;
                     });
                 });
         }
 
-        // Auto-refresh the logs every 3 seconds
         setInterval(fetchLogs, 3000);
-        fetchLogs(); // Load immediately on start
+        fetchLogs(); 
     </script>
 </body>
 </html>
 """
-
-# --- ROUTES ---
 
 @app.route('/')
 def index():
@@ -197,15 +184,13 @@ def handle_telemetry():
     if request.method == 'POST':
         data = request.json
         if data:
-            data['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            data['timestamp'] = datetime.now().strftime("%H:%M:%S")
             telemetry_logs.append(data)
-            # Keep only the last 50 logs to save server memory
             if len(telemetry_logs) > 50:
                 telemetry_logs.pop(0)
             return jsonify({"status": "logged successfully"}), 200
         return jsonify({"status": "bad request"}), 400
         
-    # GET request returns all logs
     return jsonify(telemetry_logs)
 
 if __name__ == '__main__':

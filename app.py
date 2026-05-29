@@ -31,20 +31,23 @@ Fixes applied vs original:
      CRASH rows pulse red, HEARTBEAT rows are dimmed grey.
      All other events (BODY, ACK, etc.) are white default.
 
-  7. Timestamp now includes date (YYYY-MM-DD HH:MM:SS) so logs
-     from different days are unambiguous.
+  7. Timestamp now includes date (YYYY-MM-DD HH:MM:SS) and is natively
+     locked to IST (UTC+5:30) so logs are always accurate.
 
   8. "No Events Logged Yet" message preserved and centred.
 """
 
 from flask import Flask, request, jsonify, render_template_string
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from collections import deque
 import threading
 import json
 import os
 
 app = Flask(__name__)
+
+# Define IST offset (UTC + 5 hours 30 mins)
+IST = timezone(timedelta(hours=5, minutes=30))
 
 # ---------------------------------------------------------------
 # Persistence helpers
@@ -313,8 +316,8 @@ def handle_telemetry():
     if request.method == 'POST':
         data = request.get_json(silent=True, force=True)  # force=True accepts any content-type
         if data:
-            # Add server-side timestamp (UTC, full date+time)
-            data['timestamp'] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            # Added IST Offset here
+            data['timestamp'] = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
             with _lock:
                 telemetry_logs.append(data)
                 _save_state(current_command, telemetry_logs)
@@ -335,7 +338,7 @@ def status():
         "status": "online",
         "current_command": current_command,
         "log_count": count,
-        "server_time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        "server_time": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
     })
 
 if __name__ == '__main__':
